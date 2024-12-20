@@ -44,7 +44,7 @@ Included are:
 - `ffmpeg`, `smbclient`, `libreoffice` and `nodejs` are included by default
 - Possibility included to [permanently add additional OS packages into the Nextcloud container](https://github.com/nextcloud/all-in-one#how-to-change-the-nextcloud-apps-that-are-installed-on-the-first-startup) without having to build your own Docker image
 - Possibility included to [permanently add additional PHP extensions into the Nextcloud container](https://github.com/nextcloud/all-in-one#how-to-add-php-extensions-permanently-to-the-nextcloud-container) without having to build your own Docker image
-- Possibility included to [pass the needed device for hardware transcoding](https://github.com/nextcloud/all-in-one#how-to-enable-hardware-transcoding-for-nextcloud) to the Nextcloud container
+- Possibility included to [pass the needed device for hardware transcoding](https://github.com/nextcloud/all-in-one#how-to-enable-hardware-acceleration-for-nextcloud) to the Nextcloud container
 - Possibility included to [store all docker related files on a separate drive](https://github.com/nextcloud/all-in-one#how-to-store-the-filesinstallation-on-a-separate-drive)
 - [Additional features can be added very easily](https://github.com/nextcloud/all-in-one/tree/main/community-containers#community-containers)
 - [LDAP can be used as user backend for Nextcloud](https://github.com/nextcloud/all-in-one/tree/main#ldap)
@@ -434,6 +434,30 @@ Backed up will get all important data of your Nextcloud AIO instance like the da
 #### How to adjust borgs retention policy?
 The built-in borg-based backup solution has by default a retention policy of `--keep-within=7d --keep-weekly=4 --keep-monthly=6`. See https://borgbackup.readthedocs.io/en/stable/usage/prune.html for what these values mean. You can adjust the retention policy by providing `--env BORG_RETENTION_POLICY="--keep-within=7d --keep-weekly=4 --keep-monthly=6"` to the docker run command of the mastercontainer (but before the last line `nextcloud/all-in-one:latest`! If it was started already, you will need to stop the mastercontainer, remove it (no data will be lost) and recreate it using the docker run command that you initially used) and customize the value to your fitting. ⚠️ Please make sure that this value is valid, otherwise backup pruning will bug out!
 
+#### How to migrate from AIO to AIO?
+If you have the borg backup feature enabled, you can copy it over to the new host and restore from the backup. This guide assumes the new installation data dir will be on `/mnt/datadir`, you can adjust the steps if it's elsewhere.
+
+1. Set the DNS entry to 60 seconds TTL if applicable
+1. On your current installation, use the AIO interface to:
+    1. Update AIO and all containers
+    1. Stop all containers (from now on, your cloud is down)
+    1. Create a current borg backup
+    1. Note the path where the backups are stored and the encryption password
+1. Navigate to the backup folder
+1. Create archive of the backup so it's easier to copy: `tar -czvf borg.tar.gz borg`
+1. Copy the archive over to the new host: `cp borg.tar.gz user@new.host:/mnt`. Make sure to replace `user` with your actual user and `new.host` with the IP or domain of the actual host. You can also use another way to copy the archive.
+1. Switch to the new host
+1. Go to the folder you put the backup archive and extract it with `tar -xf borg.tar.gz`
+1. Follow the installation guide to create a new aio instance, but do not start the containers yet (the `docker run` or `docker compose up -d` command)
+1. Change the DNS entry to the new host's IP
+1. Configure your reverse proxy if you use one
+1. Start the AIO container and open the new AIO interface in your browser
+1. Make sure to save the newly generated passphrase and enter it in the next step
+1. Select the "Restore former AIO instance from backup" option and enter the encryption password from the old backup and the path in which the extracted `borg` folder lies in (without the borg part) and hit `Submit location and password`
+1. Choose the latest backup in the dropdown and hit `Restore selected backup`
+1. Wait until the backup is restored
+1. Start the containers in the AIO interface
+
 #### Are remote borg backups supported?
 Backing up directly to a remote borg repository is supported. This avoids having to store a local copy of your backups, supports append-only borg keys to counter ransomware and allows using the AIO interface to manage your backups.
 
@@ -731,7 +755,7 @@ You might want to adjust the Nextcloud apps that are installed upon the first st
 ### How to add OS packages permanently to the Nextcloud container?
 Some Nextcloud apps require additional external dependencies that must be bundled within Nextcloud container in order to work correctly. As we cannot put each and every dependency for all apps into the container - as this would make the project quickly unmaintainable - there is an official way in which you can add additional dependencies into the Nextcloud container. However note that doing this is disrecommended since we do not test Nextcloud apps that require external dependencies. 
 
-You can do so by adding `--env NEXTCLOUD_ADDITIONAL_APKS="imagemagick dependency2 dependency3"` to the docker run command of the mastercontainer (but before the last line `nextcloud/all-in-one:latest`! If it was started already, you will need to stop the mastercontainer, remove it (no data will be lost) and recreate it using the docker run command that you initially used) and customize the value to your fitting. It must be a string with small letters a-z, digits 0-9, spaces, dots and hyphens or '_'. You can find available packages here: https://pkgs.alpinelinux.org/packages?branch=v3.20. By default `imagemagick` is added. If you want to keep it, you need to specify it as well.
+You can do so by adding `--env NEXTCLOUD_ADDITIONAL_APKS="imagemagick dependency2 dependency3"` to the docker run command of the mastercontainer (but before the last line `nextcloud/all-in-one:latest`! If it was started already, you will need to stop the mastercontainer, remove it (no data will be lost) and recreate it using the docker run command that you initially used) and customize the value to your fitting. It must be a string with small letters a-z, digits 0-9, spaces, dots and hyphens or '_'. You can find available packages here: https://pkgs.alpinelinux.org/packages?branch=v3.21. By default `imagemagick` is added. If you want to keep it, you need to specify it as well.
 
 ### How to add PHP extensions permanently to the Nextcloud container?
 Some Nextcloud apps require additional php extensions that must be bundled within Nextcloud container in order to work correctly. As we cannot put each and every dependency for all apps into the container - as this would make the project quickly unmaintainable - there is an official way in which you can add additional php extensions into the Nextcloud container. However note that doing this is disrecommended since we do not test Nextcloud apps that require additional php extensions. 
@@ -741,11 +765,33 @@ You can do so by adding `--env NEXTCLOUD_ADDITIONAL_PHP_EXTENSIONS="imagick exte
 ### What about the pdlib PHP extension for the facerecognition app?
 The [facerecognition app](https://apps.nextcloud.com/apps/facerecognition) requires the pdlib PHP extension to be installed. Unfortunately, it is not available on PECL nor via PHP core, so there is no way to add this into AIO currently. However you can use [this community container](https://github.com/nextcloud/all-in-one/tree/main/community-containers/facerecognition) in order to run facerecognition.
 
-### How to enable hardware-transcoding for Nextcloud?
-> [!WARNING]  
-> This only works if the `/dev/dri` device is present on the host! If it does not exists on your host, don't proceed as otherwise the Nextcloud container will fail to start! If you are unsure about this, better do not proceed with the instructions below.
+### How to enable hardware acceleration for Nextcloud?
+Some container can use GPU acceleration to increase performance like [memories app](https://apps.nextcloud.com/apps/memories) allows to enable hardware transcoding for videos.
 
-The [memories app](https://apps.nextcloud.com/apps/memories) allows to enable hardware transcoding for videos. In order to use that, you need to add `--env NEXTCLOUD_ENABLE_DRI_DEVICE=true` to the docker run command of the mastercontainer (but before the last line `nextcloud/all-in-one:latest`! If it was started already, you will need to stop the mastercontainer, remove it (no data will be lost) and recreate it using the docker run command that you initially used) which will mount the `/dev/dri` device into the container. There is now a community container which allows to easily add the transcoding container of Memories to AIO: https://github.com/nextcloud/all-in-one/tree/main/community-containers/memories
+#### With open source drivers MESA for AMD, Intel and **new** drivers `Nouveau` for Nvidia
+
+> [!WARNING]  
+> This only works if the `/dev/dri` device is present on the host! If it does not exist on your host, don't proceed as otherwise the Nextcloud container will fail to start! If you are unsure about this, better do not proceed with the instructions below. Make sure that your driver is correctly configured on the host.
+
+A list of supported device can be fond in [MESA 3D documentation](https://docs.mesa3d.org/systems.html).
+
+This method use the [Direct Rendering Infrastructure](https://dri.freedesktop.org/wiki/) with the access to the `/dev/dri` device.
+
+In order to use that, you need to add `--env NEXTCLOUD_ENABLE_DRI_DEVICE=true` to the docker run command of the mastercontainer (but before the last line `nextcloud/all-in-one:latest`! If it was started already, you will need to stop the mastercontainer, remove it (no data will be lost) and recreate it using the docker run command that you initially used) which will mount the `/dev/dri` device into the container.
+
+
+#### With proprietary drivers for Nvidia :warning: BETA
+
+> [!WARNING]
+> This only works if the Nvidia Toolkit is installed on the host and an NVIDIA GPU is enabled! Make sure that it is correctly configured on the host. If it does not exist on your host, don't proceed as otherwise the Nextcloud container will fail to start! If you are unsure about this, better do not proceed with the instructions below.
+> 
+> This feature is in beta. Since the proprietary, we haven't a lot of user using proprietary drivers, we can't guarantee the stability of this feature. Your feedback is welcome.
+
+This method use the [Nvidia Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/index.html) with the nvidia runtime.
+
+In order to use that, you need to add `--env ENABLE_NVIDIA_GPU=true` to the docker run command of the mastercontainer (but before the last line `nextcloud/all-in-one:latest`! If it was started already, you will need to stop the mastercontainer, remove it (no data will be lost) and recreate it using the docker run command that you initially used) which will enable the nvidia runtime.
+
+If you're using WSL2 and want to use the NVIDIA runtime, please follow the instructions to [install the NVIDIA Container Toolkit meta-version in WSL](https://docs.nvidia.com/cuda/wsl-user-guide/index.html#cuda-support-for-wsl-2).
 
 ### How to keep disabled apps?
 In certain situations you might want to keep Nextcloud apps that are disabled in the AIO interface and not uninstall them if they should be installed in Nextcloud. You can do so by adding `--env NEXTCLOUD_KEEP_DISABLED_APPS=true` to the docker run command of the mastercontainer (but before the last line `nextcloud/all-in-one:latest`! If it was started already, you will need to stop the mastercontainer, remove it (no data will be lost) and recreate it using the docker run command that you initially used). 

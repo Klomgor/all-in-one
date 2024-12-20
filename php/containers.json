@@ -210,6 +210,8 @@
         "POSTGRES_USER=nextcloud",
         "REDIS_HOST=nextcloud-aio-redis",
         "REDIS_HOST_PASSWORD=%REDIS_PASSWORD%",
+        "APACHE_HOST=nextcloud-aio-apache",
+        "APACHE_PORT=%APACHE_PORT%",
         "AIO_TOKEN=%AIO_TOKEN%",
         "NC_DOMAIN=%NC_DOMAIN%",
         "ADMIN_USER=admin",
@@ -251,7 +253,6 @@
         "FULLTEXTSEARCH_PASSWORD=%FULLTEXTSEARCH_PASSWORD%",
         "DOCKER_SOCKET_PROXY_ENABLED=%DOCKER_SOCKET_PROXY_ENABLED%",
         "REMOVE_DISABLED_APPS=%REMOVE_DISABLED_APPS%",
-        "APACHE_PORT=%APACHE_PORT%",
         "ADDITIONAL_TRUSTED_PROXY=%CADDY_IP_ADDRESS%",
         "THIS_IS_AIO=true",
         "IMAGINARY_SECRET=%IMAGINARY_SECRET%",
@@ -263,6 +264,7 @@
       "devices": [
         "/dev/dri"
       ],
+      "enable_nvidia_gpu": true,
       "backup_volumes": [
         "nextcloud_aio_nextcloud"
       ],
@@ -375,12 +377,12 @@
       "image": "nextcloud/aio-collabora",
       "init": true,
       "healthcheck": {
-        "start_period": "360s",
+        "start_period": "60s",
         "test": "/healthcheck.sh",
         "interval": "30s",
         "timeout": "30s",
         "start_interval": "5s",
-        "retries": 3
+        "retries": 9
       },
       "expose": [
         "9980"
@@ -388,7 +390,7 @@
       "internal_port": "9980",
       "environment": [
         "aliasgroup1=https://%NC_DOMAIN%:443",
-        "extra_params=--o:ssl.enable=false --o:ssl.termination=true --o:mount_jail_tree=false --o:logging.level=warning --o:home_mode.enable=true %COLLABORA_SECCOMP_POLICY% --o:remote_font_config.url=https://%NC_DOMAIN%/apps/richdocuments/settings/fonts.json --o:net.post_allow_host[0]=0.0.0.0/0 --o:net.post_allow_host[1]=::/0",
+        "extra_params=--o:ssl.enable=false --o:ssl.termination=true --o:mount_jail_tree=false --o:logging.level=warning --o:home_mode.enable=true %COLLABORA_SECCOMP_POLICY% --o:remote_font_config.url=https://%NC_DOMAIN%/apps/richdocuments/settings/fonts.json --o:net.post_allow.host[0]=.+",
         "dictionaries=%COLLABORA_DICTIONARIES%",
         "TZ=%TIMEZONE%",
         "server_name=%NC_DOMAIN%",
@@ -520,6 +522,10 @@
       "profiles": [
         "talk-recording"
       ],
+      "devices": [
+        "/dev/dri"
+      ],
+      "enable_nvidia_gpu": true,
       "networks": [
         "nextcloud-aio"
       ],
@@ -657,12 +663,12 @@
       "user": "100",
       "init": false,
       "healthcheck": {
-        "start_period": "360s",
+        "start_period": "60s",
         "test": "clamdcheck.sh",
         "interval": "30s",
         "timeout": "30s",
         "start_interval": "5s",
-        "retries": 3
+        "retries": 9
       },
       "expose": [
         "3310"
@@ -704,12 +710,12 @@
       "image": "nextcloud/aio-onlyoffice",
       "init": true,
       "healthcheck": {
-        "start_period": "360s",
+        "start_period": "60s",
         "test": "/healthcheck.sh",
         "interval": "30s",
         "timeout": "30s",
         "start_interval": "5s",
-        "retries": 3
+        "retries": 9
       },
       "expose": [
         "80"
