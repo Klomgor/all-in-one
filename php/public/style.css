@@ -11,8 +11,12 @@
     --color-error-text: #c20505;
     --color-success: #46ba61;
     --color-running: #ffd000;
-    --color-info: #0071ad;
-    --color-info-hover: #00aaef;
+    --color-primary-element: #00679e;
+    --color-primary-element-hover: #005a8a;
+    --color-primary-element-text: #ffffff;
+    --color-primary-element-light: #e5eff5;
+    --color-primary-element-light-hover: #dbe4ea;
+    --color-primary-element-light-text: #00293f;
     --color-border-maxcontrast: #7d7d7d;
     --color-loader: #f3f3f3;
     --color-disabled: #d3d3d3; /* light gray background for disabled checkboxes */
@@ -24,7 +28,7 @@
     --border-radius-large: 12px;
     --default-font-size: 13px;
     --checkbox-size: 16px;
-    --max-width: 500px;
+    --max-width: 580px;
     --container-top-margin: 20px;
     --container-bottom-margin: 20px;
     --container-padding: 2px;
@@ -33,9 +37,9 @@
     --main-padding: 50px;
 }
 
-/* Breakpoint calculation: 500px (max-width) + 100px (main-padding * 2) + 200px (additional space) = 800px
+/* Breakpoint calculation: 580px (max-width) + 100px (main-padding * 2) + 200px (additional space) = 880px
 Note: Unfortunately, it's not possible to calculate this dynamically using CSS variables in media queries */
-@media only screen and (max-width: 800px) {
+@media only screen and (max-width: 880px) {
     :root {
         --container-top-margin: 50px;
         --container-bottom-margin: 0px;
@@ -52,8 +56,12 @@ Note: Unfortunately, it's not possible to calculate this dynamically using CSS v
     --color-error: #ff3333;
     --color-error-hover: #ff6666;
     --color-error-text: #ff8080;
-    --color-info: #00aeff;
-    --color-info-hover: #33beff;
+    --color-primary-element:#0091f2;
+    --color-primary-element-hover:#079cff;
+    --color-primary-element-text:#000000;
+    --color-primary-element-light:#14232c;
+    --color-primary-element-light-hover:#1e2d35;
+    --color-primary-element-light-text:#99d3f9;
     --color-loader: var(--color-border-maxcontrast);
     --border-hover: var(--border);
 }
@@ -68,38 +76,67 @@ html, body {
 
 a {
     text-decoration: none;
-    color: var(--color-info);
+    color: var(--color-primary-element);
 }
 
 a:hover {
-    color: var(--color-info-hover);
+    color: var(--color-primary-element-hover);
 }
 
 a.button,
+button.button,
 input[type="submit"] {
     padding: 8px 16px;
     width: auto;
     height: 34px;
     cursor: pointer;
-    background-color: var(--color-nextcloud-blue);
+    background-color: var(--color-primary-element);
     font-weight: bold;
     border-radius: var(--border-radius);
     margin: 3px 3px 3px 0;
     font-size: var(--default-font-size);
-    color: white;
-    border: .5px solid var(--color-main-border);
+    color: var(--color-primary-element-text);
+    border: none;
     outline: none;
 }
 
 a.button:focus,
+button.button:focus,
 input[type="submit"]:focus {
-    border: 1px solid var(--color-main-border);
+    outline: 2px solid var(--color-main-border);
 }
 
 a.button:hover,
+button.button:hover,
 input[type="submit"]:hover {
-    background-color: var(--color-info-hover);
+    background-color: var(--color-primary-element-hover);
 }
+
+
+a.button.light:hover,
+input[type="submit"].light:hover {
+    background-color: var(--color-primary-element-light);
+    color: var(--color-primary-element-light-text);
+}
+
+
+a.button.light,
+input[type="submit"].light {
+    background-color: var(--color-primary-element-light);
+}
+
+a.button.error,
+input[type="submit"].error {
+    background-color: var(--color-error);
+}
+
+a.button.error:hover,
+input[type="submit"].error:hover {
+    background-color: var(--color-error-hover);
+}
+
+
+
 
 summary {
     cursor: pointer;
@@ -186,10 +223,11 @@ svg:not(:has(use)) .fallback-text {
 }
 
 .login > .monospace {
-    font-family: monospace;
+    font-family: monospace, monospace, system-ui, -apple-system, 'Segoe UI', Roboto, Oxygen-Sans, Cantarell, Ubuntu, 'Helvetica Neue', 'Noto Sans', 'Liberation Sans', Arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
     font-size: 17px;
 }
 
+.login > form > .password-field,
 .login > form > input[type="password"],
 .login > form > input[type="text"],
 .login > form > input[type="submit"] {
@@ -217,7 +255,7 @@ svg:not(:has(use)) .fallback-text {
     min-width: 100vw;
     position: fixed;
     width: 100vw;
-    background-image: url("img/jenna-kim-the-globe.webp");
+    background-image: url("img/jo-myoung-hee-fluid.webp");
     background-position: center;
     background-repeat: no-repeat;
     background-size: cover;
@@ -226,7 +264,7 @@ svg:not(:has(use)) .fallback-text {
 }
 
 html[data-theme="dark"] .wrapper {
-    background-image: url("img/jenna-kim-the-globe-dark.webp");
+    background-image: url("img/jo-myoung-hee-fluid-dark.webp");
 }
 
 form {
@@ -235,6 +273,7 @@ form {
 
 input[type="text"],
 input[type="password"],
+input[type="email"],
 select {
     padding-left: 8px;
     padding-right: 8px;
@@ -248,6 +287,7 @@ select {
 
 input[type="text"]:hover,
 input[type="password"]:hover,
+input[type="email"]:hover,
 select:hover {
     border: var(--border-hover) solid var(--color-main-border-hover);
 }
@@ -260,9 +300,65 @@ textarea {
 
 input[type="text"]:focus,
 input[type="password"]:focus,
+input[type="email"]:focus,
 textarea:focus,
 select:focus {
     border: 1px solid var(--color-main-border);
+}
+
+/* Passphrase input with a reveal button on its right side */
+.password-field {
+    position: relative;
+    display: inline-block;
+}
+
+.login > form > .password-field {
+    display: block;
+}
+
+.password-field > input {
+    width: 100%;
+    box-sizing: border-box;
+    padding-right: 36px;
+}
+
+.password-toggle {
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 34px;
+    height: 34px;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: none;
+    border-radius: var(--border-radius);
+    color: var(--color-main-text);
+    opacity: .6;
+    cursor: pointer;
+}
+
+.password-toggle:hover,
+.password-toggle:focus-visible {
+    opacity: 1;
+}
+
+.password-toggle:focus-visible {
+    outline: 2px solid var(--color-main-border);
+}
+
+.password-toggle::before {
+    content: '';
+    width: 18px;
+    height: 18px;
+    background-color: currentColor;
+    mask: url("img/eye.svg") center / contain no-repeat;
+}
+
+.password-toggle[aria-pressed="true"]::before {
+    mask-image: url("img/eye-off.svg");
 }
 
 /* Scroll bar for dark mode */
@@ -315,6 +411,7 @@ main {
     word-break: break-word;
     max-width: calc(var(--max-width) + calc(var(--main-padding) * 2));
     margin: 0 auto;
+    padding-bottom: var(--main-padding);
 }
 
 .logo {
@@ -352,7 +449,7 @@ input[type="checkbox"]:not(:disabled) {
     -webkit-appearance: none; /* remove default styling */
     -moz-appearance: none;
     appearance: none;
-    border: 1px solid var(--color-nextcloud-blue);
+    border: 1px solid var(--color-primary-element);
     border-radius: 2px;
     cursor: pointer;
     position: relative;
@@ -362,12 +459,12 @@ input[type="checkbox"]:not(:disabled) {
 
 /* Hover effects for enabled checkboxes */
 input[type="checkbox"]:not(:disabled):hover {
-    border-color: var(--color-info-hover);
+    border-color: var(--color-primary-element-hover);
 }
 
 /* Checkmark styling for enabled checkboxes */
 input[type="checkbox"]:checked:not(:disabled) {
-    background-color: var(--color-nextcloud-blue);
+    background-color: var(--color-primary-element);
     border-color: var(--color-border-maxcontrast);
 }
 
@@ -433,7 +530,103 @@ input[type="checkbox"]:disabled:not(:checked) + label {
 }
 
 #overlay.loading {
+    display: grid;
+    justify-items: center;
+    row-gap: 2rem;
+}
+
+#overlay #overlay-log.visible {
+    visibility: visible;
+    opacity: 1;
+    transition: opacity 1s ease-in;
+}
+
+#overlay #overlay-log {
+    visibility: hidden;
+    opacity: 0;
+    align-self: start;
+    width: min(600px, calc(100vw - 4rem));
+    height: min(400px, calc(100vh - 14rem));
+    border-radius: var(--border-radius-large);
+    border: solid thin rgb(192, 192, 192);
+    background-color: var(--color-main-background);
+}
+
+/* deSEC registration modal (containers page) */
+.modal {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: rgba(0, 0, 0, 0.5);
+    z-index: 3;
+    padding: 1rem;
+}
+
+.modal[hidden] {
+    display: none;
+}
+
+.modal .modal-content {
+    position: relative;
+    width: min(640px, 100%);
+    max-height: calc(100vh - 4rem);
+    background-color: var(--color-main-background);
+    border-radius: var(--border-radius-large);
+    border: solid thin rgb(192, 192, 192);
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.35);
+    overflow: hidden;
+}
+
+.modal .modal-content iframe {
     display: block;
+    width: 100%;
+    height: min(640px, calc(100vh - 4rem));
+    border: 0;
+}
+
+.modal .modal-close {
+    position: absolute;
+    top: 0.25rem;
+    right: 0.5rem;
+    z-index: 1;
+    background: transparent;
+    border: none;
+    font-size: 1.8rem;
+    line-height: 1;
+    cursor: pointer;
+    color: inherit;
+}
+
+body.modal-open {
+    overflow: hidden;
+}
+
+/* deSEC modal view body (desec.twig) */
+.desec-modal-body,
+.desec-modal-done {
+    padding: 1.5rem;
+}
+
+/* Stack the deSEC form controls, each on its own line, instead of letting the
+   inline-block inputs flow side by side. */
+.desec-modal-body form.xhr {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+}
+
+.desec-modal-body form.xhr input[type="text"],
+.desec-modal-body form.xhr input[type="email"],
+.desec-modal-body form.xhr input[type="password"] {
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.overlay-iframe {
+    padding: 1rem;
+    font-family: monospace, system-ui, -apple-system, 'Segoe UI', Roboto, Oxygen-Sans, Cantarell, Ubuntu, 'Helvetica Neue', 'Noto Sans', 'Liberation Sans', Arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
 }
 
 .loader {
@@ -444,9 +637,7 @@ input[type="checkbox"]:disabled:not(:checked) + label {
     height: 120px;
     -webkit-animation: spin 2s linear infinite; /* Safari */
     animation: spin 2s linear infinite;
-    position: absolute;
-    top: calc(50% - 60px);
-    left: calc(50% - 60px);
+    align-self: end;
 }
 
 /* Safari */
@@ -513,4 +704,175 @@ input[type="checkbox"]:disabled:not(:checked) + label {
 /* Remove hover effects when not hovering */
 #theme-toggle:not(:hover) #theme-icon {
     opacity: 0.6; /* Slightly transparent */
+}
+/* Office Suite Feature Cards */
+.office-suite-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 16px;
+    margin: 20px 0;
+    align-items: stretch;
+}
+
+.office-radio {
+    display: none;
+}
+
+.office-card {
+    position: relative;
+    border: 2px solid var(--color-border-maxcontrast);
+    border-radius: var(--border-radius-large);
+    padding: 20px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    background-color: var(--color-main-background);
+    display: flex;
+    flex-direction: column;
+}
+
+.office-card-disabled {
+    opacity: 50%;
+    pointer-events: none;
+}
+
+.office-card:hover {
+    border-color: var(--color-primary-element);
+    box-shadow: 0 4px 12px rgba(0, 130, 201, 0.15);
+    transform: translateY(-2px);
+}
+
+#office-collabora:checked + .office-card,
+#office-onlyoffice:checked + .office-card,
+#office-eurooffice:checked + .office-card {
+    border-color: var(--color-nextcloud-blue);
+    background: linear-gradient(135deg, rgba(0, 130, 201, 0.08) 0%, rgba(0, 130, 201, 0.02) 100%);
+}
+
+[data-theme="dark"] #office-collabora:checked + .office-card,
+[data-theme="dark"] #office-onlyoffice:checked + .office-card,
+[data-theme="dark"] #office-eurooffice:checked + .office-card {
+    background: linear-gradient(135deg, rgba(0, 145, 242, 0.15) 0%, rgba(0, 145, 242, 0.03) 100%);
+}
+
+.office-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+}
+
+.office-card h4 {
+    margin: 0;
+    height: 24px;
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--color-main-text);
+}
+
+.office-powered-by {
+    margin: 4px 0 0;
+    font-size: 13px;
+    color: var(--color-main-text);
+    opacity: 0.7;
+}
+
+.office-checkmark {
+    flex-shrink: 0;
+    display: none;
+}
+
+#office-collabora:checked + .office-card .office-checkmark,
+#office-onlyoffice:checked + .office-card .office-checkmark,
+#office-eurooffice:checked + .office-card .office-checkmark {
+    display: block;
+}
+
+.office-features {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.office-features li {
+    position: relative;
+    padding-left: 20px;
+    margin-bottom: 4px;
+    font-size: var(--default-font-size);
+    line-height: 1.5;
+    color: var(--color-main-text);
+}
+
+.office-features li::before {
+    content: '•';
+    position: absolute;
+    left: 6px;
+    color: var(--color-nextcloud-blue);
+    font-weight: bold;
+}
+
+.office-checkbox {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.office-learn-more {
+    display: inline-flex;
+    align-items: center;
+    margin-top: 12px;
+    color: var(--color-primary-element);
+    text-decoration: none;
+    font-size: var(--default-font-size);
+    font-weight: 500;
+    transition: color 0.2s ease;
+}
+
+.office-learn-more:hover {
+    color: var(--color-primary-element-hover);
+}
+
+.office-learn-more svg {
+    transition: transform 0.2s ease;
+}
+
+.office-learn-more:hover svg {
+    transform: translateX(3px);
+}
+
+.office-none-card {
+    text-align: center;
+    margin: 12px 0 20px 0;
+}
+
+.office-none-label {
+    display: inline-flex;
+    align-items: center;
+    font-size: 13px;
+    color: var(--color-primary-element);
+    cursor: pointer;
+    opacity: 0.7;
+    transition: opacity 0.2s ease;
+    padding: 8px 12px;
+    border-radius: var(--border-radius);
+}
+
+.office-none-label:hover {
+    opacity: 1;
+    background-color: var(--color-primary-element-light);
+}
+
+#office-none:checked + .office-none-label {
+    opacity: 1;
+    font-weight: 600;
+}
+
+.inline-details {
+    display: inline;
+}
+
+/* Responsive adjustments for mobile */
+@media only screen and (max-width: 800px) {
+    .office-suite-cards {
+        grid-template-columns: 1fr;
+    }
 }

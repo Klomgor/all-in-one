@@ -1,5 +1,17 @@
 #!/bin/bash
 
+if [ "$AIO_LOG_LEVEL" = 'debug' ]; then
+    set -x
+fi
+
+TALK_RECORDING_LOG_LEVEL="$(case "$AIO_LOG_LEVEL" in
+    debug) printf '10' ;;
+    info) printf '20' ;;
+    warn) printf '30' ;;
+    error) printf '40' ;;
+esac)"
+export TALK_RECORDING_LOG_LEVEL
+
 # Variables
 if [ -z "$NC_DOMAIN" ]; then
     echo "You need to provide the NC_DOMAIN."
@@ -19,10 +31,47 @@ fi
 # Delete all contents on startup to start fresh
 rm -fr /tmp/{*,.*}
 
+# Detect available hardware for transcoding and build the [ffmpeg] config section accordingly
+FFMPEG_SECTION="[ffmpeg]
+# common = ffmpeg -loglevel level+warning -n
+# outputaudio = -c:a libopus
+# outputvideo = -c:v libvpx -deadline:v realtime -crf 10 -b:v 1M
+extensionaudio = .ogg
+extensionvideo = .webm"
+
+# Runs a short test encode to verify that the given ffmpeg arguments actually work on this hardware
+ffmpeg_encode_works() {
+    timeout 30 ffmpeg -hide_banner -loglevel error "$@" -f null - >/dev/null 2>&1
+}
+
+# Check for NVIDIA GPU hardware encoding (NVENC)
+if [ -e "/dev/nvidia0" ] \
+    && ffmpeg_encode_works -f lavfi -i nullsrc=s=256x256 -frames:v 1 -c:v h264_nvenc -preset p4; then
+    echo "NVIDIA GPU detected, enabling h264_nvenc hardware transcoding"
+    FFMPEG_SECTION="[ffmpeg]
+outputvideo = -c:v h264_nvenc -preset p4
+outputaudio = -c:a aac
+extensionaudio = .m4a
+extensionvideo = .mp4"
+# Check for VA-API render node (Intel/AMD open source drivers)
+# The render node may also belong to a GPU without a usable VA-API driver (e.g. NVIDIA), so test it
+elif [ -r "/dev/dri/renderD128" ] \
+    && ffmpeg_encode_works -vaapi_device /dev/dri/renderD128 -f lavfi -i nullsrc=s=256x256 -frames:v 1 -vf format=nv12,hwupload -c:v h264_vaapi; then
+    echo "DRI device detected, enabling h264_vaapi hardware transcoding"
+    FFMPEG_SECTION="[ffmpeg]
+common = ffmpeg -loglevel level+warning -n -vaapi_device /dev/dri/renderD128
+outputvideo = -vf format=nv12,hwupload -c:v h264_vaapi
+outputaudio = -c:a aac
+extensionaudio = .m4a
+extensionvideo = .mp4"
+else
+    echo "No usable hardware encoder detected, using CPU transcoding"
+fi
+
 cat << RECORDING_CONF > "/conf/recording.conf"
 [logs]
 # 30 means Warning
-level = 30
+level = ${TALK_RECORDING_LOG_LEVEL}
 
 [http]
 listen = 0.0.0.0:1234
@@ -39,7 +88,7 @@ videoheight = 1080
 directory = /tmp
 
 [backend-1]
-url = ${HPB_PROTOCOL}://${NC_DOMAIN}
+url = ${NC_PROTOCOL}://${NC_DOMAIN}
 secret = ${RECORDING_SECRET}
 skipverify = ${SKIP_VERIFY}
 
@@ -50,15 +99,12 @@ signalings = signaling-1
 url = ${HPB_PROTOCOL}://${HPB_DOMAIN}${HPB_PATH}
 internalsecret = ${INTERNAL_SECRET}
 
-[ffmpeg]
-# common = ffmpeg -loglevel level+warning -n
-# outputaudio = -c:a libopus
-# outputvideo = -c:v libvpx -deadline:v realtime -crf 10 -b:v 1M
-extensionaudio = .ogg
-extensionvideo = .webm
+${FFMPEG_SECTION}
 
 [recording]
 browser = firefox
+driverPath = /usr/bin/geckodriver
+browserPath = /usr/bin/firefox
 RECORDING_CONF
 
 exec "$@"

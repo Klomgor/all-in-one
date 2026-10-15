@@ -1,31 +1,37 @@
 # syntax=docker/dockerfile:latest
-FROM php:8.3.14-fpm-alpine3.20
+FROM php:8.4.26-fpm-alpine3.24
 
 ENV PHP_MEMORY_LIMIT=512M
-ENV PHP_UPLOAD_LIMIT=16G
+ENV PHP_UPLOAD_LIMIT=1G
 ENV PHP_MAX_TIME=3600
 ENV SOURCE_LOCATION=/usr/src/nextcloud
 ENV REDIS_DB_INDEX=0
 
 # AIO settings start # Do not remove or change this line!
-ENV NEXTCLOUD_VERSION=30.0.2
+ENV NEXTCLOUD_VERSION=34.0.5
+# Required to stop hadolint from complaining about potentially sensitive data in an environment variable. 
+# It might be a good idea to reconsider using and env var for this at one point,
+# but the actual value here is just a dummy and not relevant, so we silence the warning for now.
+# hadolint ignore=DL3064
 ENV AIO_TOKEN=123456
 ENV AIO_URL=localhost
 # AIO settings end # Do not remove or change this line!
 
-# Define the commit hash for imagick as a variable
-ARG IMAGICK_COMMIT_HASH=28f27044e435a2b203e32675e942eb8de620ee58
+COPY --chmod=775 Containers/nextcloud/*.sh /
+COPY --chmod=774 Containers/nextcloud/upgrade.exclude /upgrade.exclude
+COPY Containers/nextcloud/config/*.php /
+COPY Containers/nextcloud/dinit.d/ /etc/dinit.d/
 
-COPY --chmod=775 *.sh /
-COPY --chmod=774 upgrade.exclude /upgrade.exclude
-COPY config/*.php /
-COPY supervisord.conf /supervisord.conf
-COPY root.motd /root.motd
+# AIO cloning start # Do not remove or change this line!
+COPY app /usr/src/nextcloud/apps/nextcloud-aio
+COPY Containers/nextcloud/root.motd /root.motd
+# AIO cloning end # Do not remove or change this line!
 
 VOLUME /mnt/ncdata
 VOLUME /var/www/html
 
 # Custom: change id of www-data user as it needs to be the same like on old installations
+SHELL ["/bin/ash", "-o", "pipefail", "-c"]
 # hadolint ignore=SC2086,DL3003
 RUN set -ex; \
     apk upgrade --no-cache -a; \
@@ -48,8 +54,10 @@ RUN set -ex; \
         icu-dev \
         imagemagick-dev \
         imagemagick-svg \
+# Additional Imagick dependencies 1 start # Do not remove or change this line!
         imagemagick-heic \
         imagemagick-tiff \
+# Additional Imagick dependencies 1 end # Do not remove or change this line!
         libevent-dev \
         libjpeg-turbo-dev \
         libmcrypt-dev \
@@ -64,7 +72,7 @@ RUN set -ex; \
     ; \
     \
     docker-php-ext-configure gd --with-freetype --with-jpeg --with-webp; \
-    docker-php-ext-configure ftp --with-openssl-dir=/usr; \
+    docker-php-ext-configure ftp --with-ftp-ssl; \
     docker-php-ext-configure ldap; \
     docker-php-ext-install -j "$(nproc)" \
         bcmath \
@@ -82,29 +90,17 @@ RUN set -ex; \
     \
 # pecl will claim success even if one install fails, so we need to perform each install separately
     pecl install -o igbinary-3.2.16; \
-    pecl install APCu-5.1.24; \
-    pecl install -D 'enable-memcached-igbinary="yes"' memcached-3.3.0; \
-    pecl install -oD 'enable-redis-igbinary="yes" enable-redis-zstd="yes" enable-redis-lz4="yes"' redis-6.1.0; \
-#    pecl install -o imagick-3.7.0; \
-# Begin workaround ->
-# The master version on the imagick repository is compatible with PHP 8.3. However, the PECL version is not updated yet.
-# As soon as it will get updated, we can switch back to the PECL version, instead of having this workaround.
-    apk add --no-cache --virtual .git-build-deps git \
-    && git clone https://github.com/imagick/imagick.git --depth 1 /tmp/imagick \
-    && cd /tmp/imagick \
-    && git fetch --depth 1 origin ${IMAGICK_COMMIT_HASH} \
-    && git checkout ${IMAGICK_COMMIT_HASH} \
-    && sed -i "s/@PACKAGE_VERSION@/git-${IMAGICK_COMMIT_HASH:0:7}/" php_imagick.h \
-    && phpize && ./configure && make && make install; \
-    apk del .git-build-deps; \
-    cd && rm -r /tmp/imagick; \
-# <- End workaround
+    pecl install APCu-5.1.28; \
+    pecl install -D 'enable-memcached-igbinary="yes"' memcached-3.4.0; \
+    pecl install -oD 'enable-redis-igbinary="yes" enable-redis-zstd="yes" enable-redis-lz4="yes"' redis-6.3.0; \
+   pecl install -o imagick-3.8.1; \
     \
     docker-php-ext-enable \
         igbinary \
         apcu \
         memcached \
         redis \
+        imagick \
     ; \
     rm -r /tmp/pear; \
     \
@@ -123,33 +119,45 @@ RUN set -ex; \
     } >> /usr/local/etc/php/conf.d/docker-php-ext-igbinary.ini; \
     \
 # set recommended PHP.ini settings
-# see https://docs.nextcloud.com/server/stable/admin_manual/configuration_server/server_tuning.html#enable-php-opcache
+# see https://docs.nextcloud.com/server/stable/admin_manual/installation/server_tuning.html#enable-php-opcache and below
     { \
+        echo 'opcache.max_accelerated_files=20000'; \
         echo 'opcache.memory_consumption=256'; \
         echo 'opcache.interned_strings_buffer=64'; \
         echo 'opcache.save_comments=1'; \
         echo 'opcache.revalidate_freq=60'; \
-        echo 'opcache.jit=1255'; \
-        echo 'opcache.jit_buffer_size=8M'; \
+# JIT temporarily disabled, see https://github.com/nextcloud/docker/issues/2576
+# and https://github.com/nextcloud/all-in-one/discussions/8711
+        echo 'opcache.jit=disable'; \
+        echo 'opcache.jit_buffer_size=0'; \
     } > /usr/local/etc/php/conf.d/opcache-recommended.ini; \
     \
-    echo 'apc.enable_cli=1' >> /usr/local/etc/php/conf.d/docker-php-ext-apcu.ini; \
+    { \
+        echo 'apc.enable_cli=1'; \
+        echo 'apc.shm_size=128M'; \
+    } >> /usr/local/etc/php/conf.d/docker-php-ext-apcu.ini; \
     \
     { \
         echo 'memory_limit=${PHP_MEMORY_LIMIT}'; \
         echo 'upload_max_filesize=${PHP_UPLOAD_LIMIT}'; \
         echo 'post_max_size=${PHP_UPLOAD_LIMIT}'; \
         echo 'max_execution_time=${PHP_MAX_TIME}'; \
-        echo 'max_input_time=${PHP_MAX_TIME}'; \
-        echo 'default_socket_timeout=600'; \
+        echo 'max_input_time=-1'; \
+        echo 'default_socket_timeout=${PHP_MAX_TIME}'; \
+        echo 'output_buffering=0'; \
+        echo 'realpath_cache_size=8M'; \
+        echo 'realpath_cache_ttl=600'; \
     } > /usr/local/etc/php/conf.d/nextcloud.ini; \
     \
     { \
         echo 'session.save_handler = redis'; \
-        echo 'session.save_path = "tcp://${REDIS_HOST}:6379/${REDIS_DB_INDEX}?auth=${REDIS_HOST_PASSWORD}"'; \
+        echo 'session.save_path = "tcp://${REDIS_HOST}:${REDIS_PORT}?database=${REDIS_DB_INDEX}${REDIS_USER_AUTH}&auth[]=${REDIS_HOST_PASSWORD}&timeout=3.0&read_timeout=10.0"'; \
         echo 'redis.session.locking_enabled = 1'; \
         echo 'redis.session.lock_retries = -1'; \
-        echo 'redis.session.lock_wait_time = 10000'; \
+        echo '; 100ms in microseconds - prevents timeout on long requests such as large file uploads'; \
+        echo 'redis.session.lock_wait_time = 100000'; \
+        echo '; prevents stale locks from crashed workers (seconds)'; \
+        echo 'redis.session.lock_expire = 60'; \
         echo 'session.gc_maxlifetime = 86400'; \
     } > /usr/local/etc/php/conf.d/redis-session.ini; \
     \
@@ -164,7 +172,7 @@ RUN set -ex; \
     ; \
     \
     curl -fsSL -o nextcloud.tar.bz2 \
-        "https://download.nextcloud.com/server/releases/nextcloud-${NEXTCLOUD_VERSION}.tar.bz2"; \
+        "https://github.com/nextcloud-releases/server/releases/download/v${NEXTCLOUD_VERSION}/nextcloud-${NEXTCLOUD_VERSION}.tar.bz2"; \
     curl -fsSL -o nextcloud.tar.bz2.asc \
         "https://download.nextcloud.com/server/releases/nextcloud-${NEXTCLOUD_VERSION}.tar.bz2.asc"; \
     export GNUPGHOME="$(mktemp -d)"; \
@@ -187,7 +195,7 @@ RUN set -ex; \
         ffmpeg \
         procps \
         samba-client \
-        supervisor \
+        dinit \
 #       libreoffice \
     ; \
     \
@@ -201,15 +209,15 @@ RUN set -ex; \
         libpq-dev \
     ; \
     \
-    docker-php-ext-configure imap --with-kerberos --with-imap-ssl; \
     docker-php-ext-install \
         bz2 \
-        imap \
         pgsql \
         ftp \
     ; \
-    pecl install smbclient; \
-    docker-php-ext-enable smbclient; \
+# imap was removed from PHP core in 8.4, so it needs to be installed from PECL from now on
+    pecl install -D 'with-kerberos="yes" with-imap-ssl="yes"' imap-1.0.3; \
+    pecl install smbclient-1.1.2; \
+    docker-php-ext-enable imap smbclient; \
     \
     runDeps="$( \
         scanelf --needed --nobanner --format '%n#p' --recursive /usr/local/lib/php/extensions \
@@ -220,13 +228,6 @@ RUN set -ex; \
     apk add --no-cache --virtual .nextcloud-phpext-rundeps $runDeps; \
     apk del .build-deps; \
     \
-    mkdir -p \
-    /var/log/supervisord \
-    /var/run/supervisord \
-    ; \
-    chown www-data:root -R /var/log/supervisord; \
-    chown www-data:root -R /var/run/supervisord; \
-    \
     apk add --no-cache \
         bash \
         netcat-openbsd \
@@ -235,15 +236,16 @@ RUN set -ex; \
         git \
         postgresql-client \
         tzdata \
-        sudo \
+        su-exec \
         grep \
         nodejs \
-        libreoffice \
         bind-tools \
         imagemagick \
         imagemagick-svg \
+# Additional Imagick dependencies 2 start # Do not remove or change this line!
         imagemagick-heic \
         imagemagick-tiff \
+# Additional Imagick dependencies 2 end # Do not remove or change this line!
         coreutils; \
     \
     grep -q '^pm = dynamic' /usr/local/etc/php-fpm.d/www.conf; \
@@ -252,32 +254,48 @@ RUN set -ex; \
 # We don't actually expect so many children but don't want to limit it artificially because people will report issues otherwise.
 # Also children will usually be terminated again after the process is done due to the ondemand setting
     sed -i 's/^pm.max_children =.*/pm.max_children = 5000/' /usr/local/etc/php-fpm.d/www.conf; \
+# With pm = ondemand, workers are killed after pm.process_idle_timeout seconds
+# of inactivity.  The upstream default is 10 s, which is aggressive: after a
+# brief quiet period (e.g. desktop-sync clients polling every few seconds), all
+# workers are reaped and the next request burst must wait for fresh forks.  On
+# a loaded host that spawn latency can push Apache past its FastCGI timeout and
+# produce a 502.  300 s (5 min) keeps a warm pool through normal sync-client
+# polling cycles while still reclaiming memory during genuinely idle periods.
+    sed -i 's/^;*pm.process_idle_timeout\s*=.*/pm.process_idle_timeout = 300s/' /usr/local/etc/php-fpm.d/www.conf; \
+# Set request_terminate_timeout so that PHP-FPM forcibly kills workers that
+# exceed the wall-clock limit.  Without this (default = 0 = disabled) a worker
+# stuck on a slow DB query, a stalled Redis connection, or a hung syscall is
+# never reaped.  Over time these zombies fill up pm.max_children, leaving no
+# free slots for legitimate requests and causing Apache to return 502 Bad
+# Gateway upstream.
+    sed -i "s|^;*request_terminate_timeout = .*|request_terminate_timeout = \${PHP_MAX_TIME}|" /usr/local/etc/php-fpm.d/www.conf; \
     sed -i 's|access.log = /proc/self/fd/2|access.log = /proc/self/fd/1|' /usr/local/etc/php-fpm.d/docker.conf; \
     \
-# AIO cloning start # Do not remove or change this line!
-    rm -rf /tmp/nextcloud-aio && \
-    mkdir -p /tmp/nextcloud-aio && \
-    cd /tmp/nextcloud-aio && \
-    git clone https://github.com/nextcloud-releases/all-in-one.git --depth 1 .; \
-    mkdir -p /usr/src/nextcloud/apps/nextcloud-aio; \
-    cp -r ./app/* /usr/src/nextcloud/apps/nextcloud-aio/; \
-    echo "[ -n \"\$TERM\" ] && cat /root.motd" >> /root/.bashrc; \
-# AIO cloning end # Do not remove or change this line!
+    echo "[ -n \"\$TERM\" ] && [ -f /root.motd ] && cat /root.motd" >> /root/.bashrc; \
     \
     chown www-data:root -R /usr/src && \
-    chown www-data:root -R /usr/local/etc/php/conf.d && \
-    chown www-data:root -R /usr/local/etc/php-fpm.d && \
+    chmod 777 -R /usr/local/etc/php/conf.d && \
+    chmod 777 -R /usr/local/etc/php-fpm.d && \
     chmod -R 777 /tmp; \
-    rm -rf /usr/src/nextcloud/apps/updatenotification; \
+    chmod -R 777 /etc/openldap; \
     \
     mkdir -p /nc-updater; \
-    chown -R www-data:www-data /nc-updater; \
-    chmod -R 770 /nc-updater
+    chmod -R 777 /nc-updater
 
 # hadolint ignore=DL3002
-USER root
+USER root:root
+# The php-fpm base image sets STOPSIGNAL SIGQUIT, which dinit ignores, so the container would never stop gracefully
+STOPSIGNAL SIGTERM
 ENTRYPOINT ["/start.sh"]
-CMD ["/usr/bin/supervisord", "-c", "/supervisord.conf"]
+CMD ["dinit", "--system", "--container", "php-fpm", "cron", "taskprocessing-worker", "run-exec-commands", "is-nextcloud-online"]
 
-HEALTHCHECK CMD /healthcheck.sh
-LABEL com.centurylinklabs.watchtower.enable="false"
+HEALTHCHECK CMD ["/healthcheck.sh"]
+LABEL com.centurylinklabs.watchtower.enable="false" \
+    wud.watch="false" \
+    dockhand.update="false" \
+    org.opencontainers.image.title="Nextcloud for Nextcloud AIO" \
+    org.opencontainers.image.description="Nextcloud server with all required PHP extensions for Nextcloud All-in-One" \
+    org.opencontainers.image.url="https://github.com/nextcloud/all-in-one" \
+    org.opencontainers.image.source="https://github.com/nextcloud/all-in-one" \
+    org.opencontainers.image.vendor="Nextcloud" \
+    org.opencontainers.image.documentation="https://github.com/nextcloud/all-in-one/blob/main/readme.md"

@@ -3,14 +3,16 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   annotations:
-    kompose.cmd: kompose convert -c -f latest.yml --namespace "{{ .Values.NAMESPACE }}"
-    kompose.version: 1.34.0 (cbf2835db)
+    kompose.version: 1.38.0 (a8f5d1cbd)
   labels:
     io.kompose.service: nextcloud-aio-fulltextsearch
   name: nextcloud-aio-fulltextsearch
   namespace: "{{ .Values.NAMESPACE }}"
 spec:
   replicas: 1
+  # 2147483647 (max int32, ~68 years) effectively disables the progress deadline so that
+  # slow rollouts, e.g. large image pulls or long database upgrades, never count as failed
+  progressDeadlineSeconds: 2147483647
   selector:
     matchLabels:
       io.kompose.service: nextcloud-aio-fulltextsearch
@@ -19,14 +21,13 @@ spec:
   template:
     metadata:
       annotations:
-        kompose.cmd: kompose convert -c -f latest.yml --namespace "{{ .Values.NAMESPACE }}"
-        kompose.version: 1.34.0 (cbf2835db)
+        kompose.version: 1.38.0 (a8f5d1cbd)
       labels:
         io.kompose.service: nextcloud-aio-fulltextsearch
     spec:
       initContainers:
         - name: init-volumes
-          image: "alpine:3.20"
+          image: ghcr.io/nextcloud-releases/aio-alpine:20261014_095932
           command:
             - chmod
             - "777"
@@ -36,27 +37,53 @@ spec:
               mountPath: /nextcloud-aio-elasticsearch
       containers:
         - env:
-            - name: ES_JAVA_OPTS
-              value: -Xms512M -Xmx512M
-            - name: FULLTEXTSEARCH_PASSWORD
+            - name: AIO_LOG_LEVEL
+              value: "{{ .Values.AIO_LOG_LEVEL }}"
+            - name: ELASTIC_PASSWORD
               value: "{{ .Values.FULLTEXTSEARCH_PASSWORD }}"
+            - name: ES_JAVA_OPTS
+              value: "{{ .Values.FULLTEXTSEARCH_JAVA_OPTIONS | default "-Xms512M -Xmx512M" }}"
             - name: TZ
               value: "{{ .Values.TIMEZONE }}"
             - name: bootstrap.memory_lock
-              value: "true"
+              value: "false"
             - name: cluster.name
               value: nextcloud-aio
             - name: discovery.type
               value: single-node
             - name: http.port
               value: "9200"
-            - name: logger.org.elasticsearch.discovery
-              value: WARN
+            - name: indices.fielddata.cache.size
+              value: 20%
+            - name: indices.memory.index_buffer_size
+              value: 20%
+            - name: thread_pool.write.queue_size
+              value: "1000"
             - name: xpack.license.self_generated.type
               value: basic
             - name: xpack.security.enabled
+              value: "true"
+            - name: xpack.security.http.ssl.enabled
               value: "false"
-          image: nextcloud/aio-fulltextsearch:20241125_091756
+            - name: xpack.security.transport.ssl.enabled
+              value: "false"
+          image: ghcr.io/nextcloud-releases/aio-fulltextsearch:20261014_095932
+          readinessProbe:
+            exec:
+              command:
+                - /healthcheck.sh
+            failureThreshold: 5
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            exec:
+              command:
+                - /healthcheck.sh
+            failureThreshold: 5
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            timeoutSeconds: 5
           name: nextcloud-aio-fulltextsearch
           ports:
             - containerPort: 9200

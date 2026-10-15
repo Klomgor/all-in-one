@@ -1,5 +1,9 @@
 #!/bin/bash
 
+if [ "$AIO_LOG_LEVEL" = 'debug' ]; then
+    set -x
+fi
+
 # Functions
 get_start_time(){
     START_TIME=$(date +%s)
@@ -40,7 +44,7 @@ if [ -z "$BORG_REMOTE_REPO" ] && ! mountpoint -q "$MOUNT_DIR"; then
 fi
 
 # Check if repo is uninitialized
-if [ "$BORG_MODE" != backup ] && [ "$BORG_MODE" != test ] && ! borg info > /dev/null; then
+if [ "$BORG_MODE" != backup ] && [ "$BORG_MODE" != test ] && ! borg "$BORG_LOG_LEVEL_FLAG" info > /dev/null; then
     if [ -n "$BORG_REMOTE_REPO" ]; then
         echo "The repository is uninitialized or cannot connect to remote. Cannot perform check or restore."
     else
@@ -77,6 +81,10 @@ if [ "$BORG_MODE" = backup ]; then
     if ! [ -f "/nextcloud_aio_volumes/nextcloud_aio_mastercontainer/data/configuration.json" ]; then
         echo "configuration.json not present. Cannot perform the backup!"
         exit 1
+    elif ! grep -q '"domain"' "/nextcloud_aio_volumes/nextcloud_aio_mastercontainer/data/configuration.json" \
+    || ! grep -q '"wasStartButtonClicked"' "/nextcloud_aio_volumes/nextcloud_aio_mastercontainer/data/configuration.json"; then
+        echo "It seems like the configuration.json setup was not done correctly. Something is wrong! (Most likely the provided configuration.json is invalid)"
+        exit 1
     elif ! [ -f "/nextcloud_aio_volumes/nextcloud_aio_nextcloud/config/config.php" ]; then
         echo "config.php is missing. Cannot perform backup!"
         exit 1
@@ -109,7 +117,7 @@ if [ "$BORG_MODE" = backup ]; then
         echo "sudo docker stop nextcloud-aio-database -t 1800"
         echo ""
         echo "Afterwards try to create a backup again and it should hopefully work."
-        echo "If it should still fail, feel free to report this to https://github.com/nextcloud/all-in-one/issues and post the database container logs and the borgbackup container logs into the thread. Thanks!"
+        echo "If it should still fail, feel free to report this to https://github.com/nextcloud/all-in-one/discussions/new?category=questions and post the database container logs and the borgbackup container logs into the thread. Thanks!"
         exit 1
     fi
 
@@ -119,7 +127,7 @@ if [ "$BORG_MODE" = backup ]; then
     fi
 
     # Initialize the repository if can't get info from target
-    if ! borg info > /dev/null; then
+    if ! borg "$BORG_LOG_LEVEL_FLAG" info > /dev/null; then
         # Don't initialize if already initialized
         if [ -f "/nextcloud_aio_volumes/nextcloud_aio_mastercontainer/data/borg.config" ]; then
             if [ -n "$BORG_REMOTE_REPO" ]; then
@@ -136,19 +144,14 @@ if [ "$BORG_MODE" = backup ]; then
 
         echo "Initializing repository..."
         NEW_REPOSITORY=1
-        if ! borg init --debug --encryption=repokey-blake2; then
+        if ! borg "$BORG_LOG_LEVEL_FLAG" init --encryption=repokey-blake2; then
             echo "Could not initialize borg repository."
-            if [ -z "$BORG_REMOTE_REPO" ]; then
-                # Originally we checked for presence of the config file instead of calling `borg info`. Likely `borg info`
-                # will error on a partially initialized repo, so this line is probably no longer necessary
-                rm -f "$BORG_BACKUP_DIRECTORY/config"
-            fi
             exit 1
         fi
 
         if [ -z "$BORG_REMOTE_REPO" ]; then
             # borg config only works for local repos; it's up to the remote to ensure the disk isn't full
-            borg config :: additional_free_space 2G
+            borg "$BORG_LOG_LEVEL_FLAG" config :: additional_free_space 2G
 
             # Fix too large Borg cache
             # https://borgbackup.readthedocs.io/en/stable/faq.html#the-borg-cache-eats-way-too-much-disk-space-what-can-i-do
@@ -157,7 +160,7 @@ if [ "$BORG_MODE" = backup ]; then
             touch "/root/.cache/borg/$BORG_ID/chunks.archive.d"
         fi
 
-        if ! borg info > /dev/null; then
+        if ! borg "$BORG_LOG_LEVEL_FLAG" info > /dev/null; then
             echo "Borg can't get info from the repo it created. Something is wrong."
             exit 1
         fi
@@ -185,13 +188,27 @@ if [ "$BORG_MODE" = backup ]; then
     # Borg options
     # auto,zstd compression seems to has the best ratio based on:
     # https://forum.level1techs.com/t/optimal-compression-for-borg-backups/145870/6
-    BORG_OPTS=(-v --stats --compression "auto,zstd" --exclude-caches)
+    BORG_OPTS=(-v --stats --compression "auto,zstd")
     if [ "$NEW_REPOSITORY" = 1 ]; then
         BORG_OPTS+=(--progress)
     fi
 
     # Exclude the nextcloud log and audit log for GDPR reasons
-    BORG_EXCLUDE=(--exclude "/nextcloud_aio_volumes/nextcloud_aio_nextcloud/data/nextcloud.log*" --exclude "/nextcloud_aio_volumes/nextcloud_aio_nextcloud/data/audit.log")
+    BORG_EXCLUDE=(--exclude "/nextcloud_aio_volumes/nextcloud_aio_nextcloud/data/nextcloud.log*" --exclude "/nextcloud_aio_volumes/nextcloud_aio_nextcloud/data/audit.log" --exclude "/nextcloud_aio_volumes/nextcloud_aio_nextcloud_data/lost+found")
+    BORG_INCLUDE=()
+
+    # Exclude datadir if .noaiobackup file was found
+    # shellcheck disable=SC2144
+    if [ -f "/nextcloud_aio_volumes/nextcloud_aio_nextcloud_data/.noaiobackup" ]; then
+        BORG_EXCLUDE+=(--exclude "/nextcloud_aio_volumes/nextcloud_aio_nextcloud_data/")
+        BORG_INCLUDE+=(--pattern="+/nextcloud_aio_volumes/nextcloud_aio_nextcloud_data/.noaiobackup")
+        echo "⚠️⚠️⚠️ '.noaiobackup' file was found in Nextcloud's data directory. Excluding the data directory from backup!"
+    # Exclude preview folder if .noaiobackup file was found
+    elif [ -f /nextcloud_aio_volumes/nextcloud_aio_nextcloud_data/appdata_*/preview/.noaiobackup ]; then
+        BORG_EXCLUDE+=(--exclude "/nextcloud_aio_volumes/nextcloud_aio_nextcloud_data/appdata_*/preview/")
+        BORG_INCLUDE+=(--pattern="+/nextcloud_aio_volumes/nextcloud_aio_nextcloud_data/appdata_*/preview/.noaiobackup")
+        echo "⚠️⚠️⚠️ '.noaiobackup' file was found in the preview directory. Excluding the preview directory from backup!"
+    fi
 
     # Make sure that there is always a borg.config file before creating a new backup
     if ! [ -f "/nextcloud_aio_volumes/nextcloud_aio_mastercontainer/data/borg.config" ]; then
@@ -203,9 +220,9 @@ if [ "$BORG_MODE" = backup ]; then
     # Create the backup
     echo "Starting the backup..."
     get_start_time
-    if ! borg create "${BORG_OPTS[@]}" "${BORG_EXCLUDE[@]}" "::$CURRENT_DATE-nextcloud-aio" "/nextcloud_aio_volumes/" --exclude-from /borg_excludes; then
+    if ! borg "$BORG_LOG_LEVEL_FLAG" create "${BORG_OPTS[@]}" "${BORG_INCLUDE[@]}" "${BORG_EXCLUDE[@]}" "::$CURRENT_DATE-nextcloud-aio" "/nextcloud_aio_volumes/" --exclude-from /borg_excludes; then
         echo "Deleting the failed backup archive..."
-        borg delete --stats "::$CURRENT_DATE-nextcloud-aio"
+        borg "$BORG_LOG_LEVEL_FLAG" delete --stats "::$CURRENT_DATE-nextcloud-aio"
         echo "Backup failed!"
         echo "You might want to check the backup integrity via the AIO interface."
         if [ "$NEW_REPOSITORY" = 1 ]; then
@@ -224,14 +241,14 @@ if [ "$BORG_MODE" = backup ]; then
 
     # Prune archives
     echo "Pruning the archives..."
-    if ! borg prune --stats --glob-archives '*_*-nextcloud-aio' "${BORG_PRUNE_OPTS[@]}"; then
+    if ! borg "$BORG_LOG_LEVEL_FLAG" prune --stats --glob-archives '*_*-nextcloud-aio' "${BORG_PRUNE_OPTS[@]}"; then
         echo "Failed to prune archives!"
         exit 1
     fi
 
     # Compact archives
     echo "Compacting the archives..."
-    if ! borg compact; then
+    if ! borg "$BORG_LOG_LEVEL_FLAG" compact; then
         echo "Failed to compact archives!"
         exit 1
     fi
@@ -248,19 +265,19 @@ if [ "$BORG_MODE" = backup ]; then
                 fi
             done
             echo "Starting the backup for additional volumes..."
-            if ! borg create "${BORG_OPTS[@]}" "::$CURRENT_DATE-additional-docker-volumes" "/docker_volumes/"; then
+            if ! borg "$BORG_LOG_LEVEL_FLAG" create "${BORG_OPTS[@]}" "::$CURRENT_DATE-additional-docker-volumes" "/docker_volumes/"; then
                 echo "Deleting the failed backup archive..."
-                borg delete --stats "::$CURRENT_DATE-additional-docker-volumes"
+                borg "$BORG_LOG_LEVEL_FLAG" delete --stats "::$CURRENT_DATE-additional-docker-volumes"
                 echo "Backup of additional docker-volumes failed!"
                 exit 1
             fi
             echo "Pruning additional volumes..."
-            if ! borg prune --stats --glob-archives '*_*-additional-docker-volumes' "${BORG_PRUNE_OPTS[@]}"; then
+            if ! borg "$BORG_LOG_LEVEL_FLAG" prune --stats --glob-archives '*_*-additional-docker-volumes' "${BORG_PRUNE_OPTS[@]}"; then
                 echo "Failed to prune additional docker-volumes archives!"
                 exit 1
             fi
             echo "Compacting additional volumes..."
-            if ! borg compact; then
+            if ! borg "$BORG_LOG_LEVEL_FLAG" compact; then
                 echo "Failed to compact additional docker-volume archives!"
                 exit 1
             fi
@@ -278,19 +295,19 @@ if [ "$BORG_MODE" = backup ]; then
                 EXCLUDE_DIRS+=(--exclude "/host_mounts/$directory/")
             done
             echo "Starting the backup for additional host mounts..."
-            if ! borg create "${BORG_OPTS[@]}" "${EXCLUDE_DIRS[@]}" "::$CURRENT_DATE-additional-host-mounts" "/host_mounts/"; then
+            if ! borg "$BORG_LOG_LEVEL_FLAG" create "${BORG_OPTS[@]}" "${EXCLUDE_DIRS[@]}" "::$CURRENT_DATE-additional-host-mounts" "/host_mounts/"; then
                 echo "Deleting the failed backup archive..."
-                borg delete --stats "::$CURRENT_DATE-additional-host-mounts"
+                borg "$BORG_LOG_LEVEL_FLAG" delete --stats "::$CURRENT_DATE-additional-host-mounts"
                 echo "Backup of additional host-mounts failed!"
                 exit 1
             fi
             echo "Pruning additional host mounts..."
-            if ! borg prune --stats --glob-archives '*_*-additional-host-mounts' "${BORG_PRUNE_OPTS[@]}"; then
+            if ! borg "$BORG_LOG_LEVEL_FLAG" prune --stats --glob-archives '*_*-additional-host-mounts' "${BORG_PRUNE_OPTS[@]}"; then
                 echo "Failed to prune additional host-mount archives!"
                 exit 1
             fi
             echo "Compacting additional host mounts..."
-            if ! borg compact; then
+            if ! borg "$BORG_LOG_LEVEL_FLAG" compact; then
                 echo "Failed to compact additional host-mount archives!"
                 exit 1
             fi
@@ -320,16 +337,30 @@ if [ "$BORG_MODE" = restore ]; then
     fi
     echo "Restoring '$SELECTED_ARCHIVE'..."
 
-    # Exclude previews from restore if selected to speed up process
     ADDITIONAL_RSYNC_EXCLUDES=()
     ADDITIONAL_BORG_EXCLUDES=()
     ADDITIONAL_FIND_EXCLUDES=()
-    if [ -n "$RESTORE_EXCLUDE_PREVIEWS" ]; then
+    # Exclude datadir if .noaiobackup file was found
+    # shellcheck disable=SC2144
+    if [ -f "/nextcloud_aio_volumes/nextcloud_aio_nextcloud_data/.noaiobackup" ]; then
+        # Keep these 3 in sync. Beware, the pattern syntax and the paths differ
+        ADDITIONAL_RSYNC_EXCLUDES=(--exclude "nextcloud_aio_nextcloud_data/**")
+        ADDITIONAL_BORG_EXCLUDES=(--exclude "sh:nextcloud_aio_volumes/nextcloud_aio_nextcloud_data/**")
+        ADDITIONAL_FIND_EXCLUDES=(-o -regex 'nextcloud_aio_volumes/nextcloud_aio_nextcloud_data\(/.*\)?')
+        echo "⚠️⚠️⚠️ '.noaiobackup' file was found in Nextcloud's data directory. Excluding the data directory from restore!"
+        echo "You might run into problems due to this afterwards as potentially this makes the directory go out of sync with the database."
+        echo "You might be able to fix this by running 'occ files:scan --all' and 'occ maintenance:repair' and 'occ files:scan-app-data' after the restore."
+        echo "See https://github.com/nextcloud/all-in-one#how-to-run-occ-commands"
+    # Exclude previews from restore if selected to speed up process or exclude preview folder if .noaiobackup file was found
+    elif [ -n "$RESTORE_EXCLUDE_PREVIEWS" ] || [ -f /nextcloud_aio_volumes/nextcloud_aio_nextcloud_data/appdata_*/preview/.noaiobackup ]; then
         # Keep these 3 in sync. Beware, the pattern syntax and the paths differ
         ADDITIONAL_RSYNC_EXCLUDES=(--exclude "nextcloud_aio_nextcloud_data/appdata_*/preview/**")
         ADDITIONAL_BORG_EXCLUDES=(--exclude "sh:nextcloud_aio_volumes/nextcloud_aio_nextcloud_data/appdata_*/preview/**")
         ADDITIONAL_FIND_EXCLUDES=(-o -regex 'nextcloud_aio_volumes/nextcloud_aio_nextcloud_data/appdata_[^/]*/preview\(/.*\)?')
-        echo "Excluding previews from restore"
+        echo "⚠️⚠️⚠️ Excluding previews from restore!"
+        echo "You might run into problems due to this afterwards as potentially this makes the directory go out of sync with the database."
+        echo "You might be able to fix this by running 'occ files:scan-app-data preview' after the restore."
+        echo "See https://github.com/nextcloud/all-in-one#how-to-run-occ-commands"
     fi
 
     # Save Additional Backup dirs
@@ -358,7 +389,7 @@ if [ "$BORG_MODE" = restore ]; then
 
     if [ -z "$BORG_REMOTE_REPO" ]; then
         mkdir -p /tmp/borg
-        if ! borg mount "::$SELECTED_ARCHIVE" /tmp/borg; then
+        if ! borg "$BORG_LOG_LEVEL_FLAG" mount "::$SELECTED_ARCHIVE" /tmp/borg; then
             echo "Could not mount the backup!"
             exit 1
         fi
@@ -377,6 +408,7 @@ if [ "$BORG_MODE" = restore ]; then
         --exclude "nextcloud_aio_mastercontainer/data/daily_backup_running" \
         --exclude "nextcloud_aio_mastercontainer/data/session_date_file" \
         --exclude "nextcloud_aio_mastercontainer/session/**" \
+        --exclude "nextcloud_aio_nextcloud_data/lost+found" \
         "${ADDITIONAL_RSYNC_EXCLUDES[@]}" \
         /tmp/borg/nextcloud_aio_volumes/ /nextcloud_aio_volumes/; then
             RESTORE_FAILED=1
@@ -404,7 +436,7 @@ if [ "$BORG_MODE" = restore ]; then
         #
         # Older backups may still contain files we've since excluded, so we have to exclude on extract as well.
         cd /  # borg extract has no destination arg and extracts to CWD
-        if ! borg extract "::$SELECTED_ARCHIVE" --progress --exclude-from /borg_excludes "${ADDITIONAL_BORG_EXCLUDES[@]}" --pattern '+nextcloud_aio_volumes/**'
+        if ! borg "$BORG_LOG_LEVEL_FLAG" extract "::$SELECTED_ARCHIVE" --progress --noxattrs --exclude-from /borg_excludes "${ADDITIONAL_BORG_EXCLUDES[@]}" --pattern '+nextcloud_aio_volumes/**'
         then
             RESTORE_FAILED=1
             echo "Failed to extract backup archive."
@@ -431,11 +463,12 @@ if [ "$BORG_MODE" = restore ]; then
                         -o -path nextcloud_aio_volumes/nextcloud_aio_mastercontainer/data/daily_backup_running \
                         -o -path nextcloud_aio_volumes/nextcloud_aio_mastercontainer/data/session_date_file \
                         -o -path "nextcloud_aio_volumes/nextcloud_aio_mastercontainer/data/id_borg*" \
+                        -o -path "nextcloud_aio_nextcloud_data/lost+found" \
                         "${ADDITIONAL_FIND_EXCLUDES[@]}" \
                     \) \
                     | LC_ALL=C sort \
                     | LC_ALL=C comm -23 - \
-                        <(borg list "::$SELECTED_ARCHIVE" --short --exclude-from /borg_excludes  --pattern '+nextcloud_aio_volumes/**' | LC_ALL=C sort) \
+                        <(borg "$BORG_LOG_LEVEL_FLAG" list "::$SELECTED_ARCHIVE" --short --exclude-from /borg_excludes  --pattern '+nextcloud_aio_volumes/**' | LC_ALL=C sort) \
                     > /tmp/local_files_not_in_backup
             then
                 RESTORE_FAILED=1
@@ -489,6 +522,10 @@ if [ "$BORG_MODE" = restore ]; then
 
     if [ "$RESTORE_FAILED" = 1 ]; then
         exit 1
+    elif ! grep -q '"domain"' "/nextcloud_aio_volumes/nextcloud_aio_mastercontainer/data/configuration.json" \
+    || ! grep -q '"wasStartButtonClicked"' "/nextcloud_aio_volumes/nextcloud_aio_mastercontainer/data/configuration.json"; then
+        echo "It seems like the restore of the configuration.json was not done correctly. Something is wrong! (Most likely is the restore archive already incorrect)!"
+        exit 1
     fi
 
     # Inform user
@@ -519,9 +556,9 @@ if [ "$BORG_MODE" = check ]; then
     echo "Checking the backup integrity..."
 
     # Perform the check
-    if ! borg check -v --verify-data; then
+    if ! borg "$BORG_LOG_LEVEL_FLAG" check -v --verify-data; then
         echo "Some errors were found while checking the backup integrity!"
-        echo "Check the AIO interface for advices on how to proceed now!"
+        echo "Check the AIO interface for advice on how to proceed now!"
         exit 1
     fi
 
@@ -537,7 +574,7 @@ if [ "$BORG_MODE" = "check-repair" ]; then
     echo "Checking the backup integrity and repairing it..."
 
     # Perform the check-repair
-    if ! echo YES | borg check -v --repair; then
+    if ! echo YES | borg "$BORG_LOG_LEVEL_FLAG" check -v --repair; then
         echo "Some errors were found while checking and repairing the backup integrity!"
         exit 1
     fi
@@ -551,7 +588,7 @@ fi
 # Do the backup test
 if [ "$BORG_MODE" = test ]; then
     if [ -n "$BORG_REMOTE_REPO" ]; then
-        if ! borg info > /dev/null; then
+        if ! borg "$BORG_LOG_LEVEL_FLAG" info > /dev/null; then
             echo "Borg could not get info from the remote repo."
             echo "See the above borg info output for details."
             exit 1
@@ -572,12 +609,12 @@ if [ "$BORG_MODE" = test ]; then
         fi
     fi
 
-    if ! borg list >/dev/null; then
+    if ! borg "$BORG_LOG_LEVEL_FLAG" list >/dev/null; then
         echo "The entered path seems to be valid but could not open the backup archive."
         echo "Most likely the entered password was wrong so please adjust it accordingly!"
         exit 1
     else
-        if ! borg list | grep "nextcloud-aio"; then
+        if ! borg "$BORG_LOG_LEVEL_FLAG" list | grep "nextcloud-aio"; then
             echo "The backup archive does not contain a valid Nextcloud AIO backup."
             echo "Most likely was the archive not created via Nextcloud AIO."
             exit 1
@@ -586,4 +623,13 @@ if [ "$BORG_MODE" = test ]; then
             exit 0
         fi
     fi
+fi
+
+if [ "$BORG_MODE" = list ]; then
+    echo "Updating backup list..."
+    if ! borg "$BORG_LOG_LEVEL_FLAG" info > /dev/null; then
+        echo "Could not update the backup list."
+        exit 1
+    fi
+    # The update gets done automatically in the wrapper start.sh script.
 fi
